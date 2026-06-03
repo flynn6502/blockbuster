@@ -19,13 +19,7 @@ function respond(array $data, int $statusCode = 200): void
 
 function db_path(): string
 {
-    $documentRoot = $_SERVER["DOCUMENT_ROOT"] ?? "";
-    $baseDir = $documentRoot !== "" ? dirname($documentRoot) : dirname(__DIR__, 3);
-    $privateDir = $baseDir . DIRECTORY_SEPARATOR . "private" . DIRECTORY_SEPARATOR . "blockbuster";
-    if (!is_dir($privateDir)) {
-        mkdir($privateDir, 0775, true);
-    }
-    return $privateDir . DIRECTORY_SEPARATOR . "scoreboard.db";
+    return __DIR__ . DIRECTORY_SEPARATOR . "scoreboard.db";
 }
 
 function db_connect(): PDO
@@ -52,7 +46,7 @@ function init_schema(PDO $pdo): void
 
 function migrate_legacy_db_if_needed(): void
 {
-    $legacyPath = dirname(__DIR__) . DIRECTORY_SEPARATOR . "scoreboard.db";
+    $legacyPath = dirname(dirname(__DIR__)) . DIRECTORY_SEPARATOR . "private" . DIRECTORY_SEPARATOR . "blockbuster" . DIRECTORY_SEPARATOR . "scoreboard.db";
     $newPath = db_path();
     if (is_file($legacyPath) && !is_file($newPath)) {
         @rename($legacyPath, $newPath);
