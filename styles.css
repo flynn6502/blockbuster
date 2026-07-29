@@ -204,3 +204,17 @@ body {
     transform: translateY(-8px) rotate(18deg);
   }
 }
+
+@media (max-width: 640px) {
+  .winner-initial-input {
+    width: 48px;
+    height: 50px;
+    font-size: 1.6rem;
+  }
+
+  .winner-save-btn {
+    min-width: 82px;
+    height: 42px;
+    font-size: 0.92rem;
+  }
+}

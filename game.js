@@ -14,6 +14,7 @@
   const COLS = 8;
   const ROWS = 8;
   const CELL_SIZE = 50;
+  const MOBILE_BREAKPOINT = 820;
   const DESKTOP_BREAKPOINT = 1024;
   const SCORE_API_URL = "./api/scoreboard.php";
   const BONUS_MAP = {
@@ -213,6 +214,7 @@
       sideY: 0,
       sideW: 0,
       sideH: 0,
+      isMobile: false,
       cell: 0,
       boardX: 0,
       boardY: 0,
@@ -265,33 +267,74 @@
 
     const w = window.innerWidth;
     const h = window.innerHeight;
+    const isMobile = w < MOBILE_BREAKPOINT;
     const navbarH = Math.max(56, h * 0.1);
     const contentY = navbarH;
     const contentH = h - navbarH;
-    const boardW = CELL_SIZE * COLS;
-    const boardH = CELL_SIZE * ROWS;
-    const boardSidePadding = 24;
-    const minMainW = boardW + boardSidePadding * 2;
-    const minSideW = CELL_SIZE * 2 + 24;
-    const preferredSideW = Math.round(Math.min(Math.max(w * 0.24, CELL_SIZE * 4 + 24), CELL_SIZE * 5 + 24));
-    const availableForSide = Math.max(0, w - minMainW);
-    const sideW = Math.max(minSideW, Math.min(preferredSideW, availableForSide));
-    const sideX = 0;
-    const sideY = contentY;
-    const sideH = contentH;
-    const mainX = sideW;
-    const mainY = contentY;
-    const mainW = w - sideW;
-    const mainH = contentH;
-    const cell = CELL_SIZE;
+    let sideX = 0;
+    let sideY = contentY;
+    let sideW = 0;
+    let sideH = contentH;
+    let mainX = 0;
+    let mainY = contentY;
+    let mainW = w;
+    let mainH = contentH;
+    let cell = CELL_SIZE;
+
+    if (isMobile) {
+      // On phones, place the shape tray at the bottom and scale blocks down
+      // so board + tray + navbar fit together.
+      const sidePadding = 10;
+      const minCell = 28;
+      const tentativeTrayH = Math.max(124, Math.min(170, contentH * 0.34));
+      const availableBoardH = contentH - tentativeTrayH - 20;
+      cell = Math.max(minCell, Math.min(CELL_SIZE, Math.floor((w - sidePadding * 2) / COLS), Math.floor(availableBoardH / ROWS)));
+
+      const boardHForCell = cell * ROWS;
+      const trayMinH = 112;
+      sideH = Math.max(trayMinH, contentH - boardHForCell - 18);
+      sideW = w;
+      sideX = 0;
+      sideY = h - sideH;
+      mainX = 0;
+      mainY = contentY;
+      mainW = w;
+      mainH = sideY - contentY;
+    } else {
+      const boardWFixed = CELL_SIZE * COLS;
+      const boardSidePadding = 24;
+      const minMainW = boardWFixed + boardSidePadding * 2;
+      const minSideW = CELL_SIZE * 2 + 24;
+      const preferredSideW = Math.round(Math.min(Math.max(w * 0.24, CELL_SIZE * 4 + 24), CELL_SIZE * 5 + 24));
+      const availableForSide = Math.max(0, w - minMainW);
+      sideW = Math.max(minSideW, Math.min(preferredSideW, availableForSide));
+      sideX = 0;
+      sideY = contentY;
+      sideH = contentH;
+      mainX = sideW;
+      mainY = contentY;
+      mainW = w - sideW;
+      mainH = contentH;
+      cell = CELL_SIZE;
+    }
+
+    const boardW = cell * COLS;
+    const boardH = cell * ROWS;
     const boardX = Math.floor((w - boardW) / 2);
     const boardY = Math.floor(mainY + Math.max(8, (mainH - boardH) / 2));
-    document.body.style.minWidth = w >= DESKTOP_BREAKPOINT ? `${boardW + 80}px` : "0px";
-    const buttonH = Math.max(34, Math.min(44, navbarH * 0.72));
-    const restartBtnW = Math.max(84, Math.min(130, navbarH * 1.8));
-    const scoreboardBtnW = Math.max(108, Math.min(168, navbarH * 2.3));
-    const buttonGap = 10;
+    document.body.style.minWidth = !isMobile && w >= DESKTOP_BREAKPOINT ? `${boardW + 80}px` : "0px";
+    const buttonH = Math.max(30, Math.min(42, navbarH * (isMobile ? 0.64 : 0.72)));
+    let restartBtnW = Math.max(74, Math.min(120, navbarH * (isMobile ? 1.5 : 1.8)));
+    let scoreboardBtnW = Math.max(94, Math.min(158, navbarH * (isMobile ? 2.0 : 2.3)));
+    const buttonGap = isMobile ? 6 : 10;
     const rightPadding = 14;
+    const maxButtonsW = w - 140;
+    const currentButtonsW = restartBtnW + scoreboardBtnW + buttonGap;
+    if (currentButtonsW > maxButtonsW) {
+      const scale = Math.max(0.75, maxButtonsW / currentButtonsW);
+      restartBtnW = Math.floor(restartBtnW * scale);
+      scoreboardBtnW = Math.floor(scoreboardBtnW * scale);
+    }
     const restartBtn = {
       w: restartBtnW,
       h: buttonH,
@@ -324,6 +367,7 @@
       sideY,
       sideW,
       sideH,
+      isMobile,
       cell,
       boardX,
       boardY,
@@ -338,18 +382,34 @@
   }
 
   function computeTraySlots() {
-    const { sideX, sideY, sideW, sideH } = state.layout;
+    const { sideX, sideY, sideW, sideH, isMobile } = state.layout;
     if (!sideW || !sideH) return;
     const slotGap = Math.max(8, Math.min(16, sideW * 0.08));
-    const slotW = Math.max(1, sideW - slotGap * 2);
-    const trayTop = sideY + slotGap;
-    const trayHeight = Math.max(1, sideH - slotGap * 2);
-    const slotH = Math.max(1, (trayHeight - slotGap * 2) / 3);
-    const startY = trayTop;
+    let slotW = Math.max(1, sideW - slotGap * 2);
+    let slotH = Math.max(1, (sideH - slotGap * 4) / 3);
+    let startY = sideY + slotGap;
+    let startX = sideX + slotGap;
+
+    if (isMobile) {
+      const gap = Math.max(8, Math.min(14, sideW * 0.03));
+      slotW = Math.max(1, (sideW - gap * 4) / 3);
+      slotH = Math.max(1, sideH - gap * 2);
+      startX = sideX + gap;
+      startY = sideY + gap;
+      state.tray.forEach((shape, i) => {
+        shape.slot = {
+          x: startX + i * (slotW + gap),
+          y: startY,
+          w: slotW,
+          h: slotH,
+        };
+      });
+      return;
+    }
 
     state.tray.forEach((shape, i) => {
       shape.slot = {
-        x: sideX + slotGap,
+        x: startX,
         y: startY + i * (slotH + slotGap),
         w: slotW,
         h: slotH,
@@ -454,11 +514,42 @@
     }
   }
 
+  function getGameOverButtons() {
+    const { restartBtn, scoreboardBtn, isMobile, width, height } = state.layout;
+    if (!isMobile) return { restartBtn, scoreboardBtn };
+
+    const buttonGap = 10;
+    const bottomPadding = 14;
+    const totalW = restartBtn.w + scoreboardBtn.w + buttonGap;
+    const startX = Math.floor((width - totalW) / 2);
+    const y = height - restartBtn.h - bottomPadding;
+    return {
+      restartBtn: { ...restartBtn, x: startX, y },
+      scoreboardBtn: { ...scoreboardBtn, x: startX + restartBtn.w + buttonGap, y },
+    };
+  }
+
+  function drawGameOverButtons() {
+    const { isMobile } = state.layout;
+    if (!state.gameOver || state.currentScreen === "scoreboard") return;
+    const { restartBtn, scoreboardBtn } = getGameOverButtons();
+
+    drawRoundedRect(restartBtn.x, restartBtn.y, restartBtn.w, restartBtn.h, 10, "#1d4ed8", "#60a5fa");
+    drawRoundedRect(scoreboardBtn.x, scoreboardBtn.y, scoreboardBtn.w, scoreboardBtn.h, 10, "#0f766e", "#2dd4bf");
+    ctx.fillStyle = "#eff6ff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = `bold ${Math.floor(restartBtn.h * (isMobile ? 0.36 : 0.42))}px Arial`;
+    ctx.fillText("Restart", restartBtn.x + restartBtn.w / 2, restartBtn.y + restartBtn.h / 2 + 1);
+    ctx.font = `bold ${Math.floor(scoreboardBtn.h * (isMobile ? 0.33 : 0.4))}px Arial`;
+    ctx.fillText("Scoreboard", scoreboardBtn.x + scoreboardBtn.w / 2, scoreboardBtn.y + scoreboardBtn.h / 2 + 1);
+  }
+
   function drawNavbar() {
-    const { width, navbarH, restartBtn, scoreboardBtn, backBtn } = state.layout;
+    const { width, navbarH, backBtn, isMobile } = state.layout;
     drawRoundedRect(0, 0, width, navbarH, 0, "#0b1228", "#1f2a44");
     ctx.fillStyle = "#e2e8f0";
-    ctx.font = `bold ${Math.floor(navbarH * 0.38)}px Arial`;
+    ctx.font = `bold ${Math.floor(navbarH * (isMobile ? 0.34 : 0.38))}px Arial`;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     const leftLabel = state.currentScreen === "scoreboard" ? "Scoreboard" : `Score: ${state.score}`;
@@ -469,21 +560,13 @@
       ctx.fillStyle = "#eff6ff";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.font = `bold ${Math.floor(backBtn.h * 0.42)}px Arial`;
+      ctx.font = `bold ${Math.floor(backBtn.h * (isMobile ? 0.38 : 0.42))}px Arial`;
       ctx.fillText("Back", backBtn.x + backBtn.w / 2, backBtn.y + backBtn.h / 2 + 1);
       return;
     }
 
-    if (state.gameOver) {
-      drawRoundedRect(restartBtn.x, restartBtn.y, restartBtn.w, restartBtn.h, 10, "#1d4ed8", "#60a5fa");
-      drawRoundedRect(scoreboardBtn.x, scoreboardBtn.y, scoreboardBtn.w, scoreboardBtn.h, 10, "#0f766e", "#2dd4bf");
-      ctx.fillStyle = "#eff6ff";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.font = `bold ${Math.floor(restartBtn.h * 0.42)}px Arial`;
-      ctx.fillText("Restart", restartBtn.x + restartBtn.w / 2, restartBtn.y + restartBtn.h / 2 + 1);
-      ctx.font = `bold ${Math.floor(scoreboardBtn.h * 0.4)}px Arial`;
-      ctx.fillText("Scoreboard", scoreboardBtn.x + scoreboardBtn.w / 2, scoreboardBtn.y + scoreboardBtn.h / 2 + 1);
+    if (state.gameOver && !isMobile) {
+      drawGameOverButtons();
     }
   }
 
@@ -501,7 +584,7 @@
     const rows = shape.matrix.length;
     const cols = shape.matrix[0].length;
     const innerPadding = 10;
-    const size = Math.min(CELL_SIZE, (slot.w - innerPadding * 2) / cols, (slot.h - innerPadding * 2) / rows);
+    const size = Math.min(state.layout.cell, (slot.w - innerPadding * 2) / cols, (slot.h - innerPadding * 2) / rows);
     const x = slot.x + (slot.w - cols * size) / 2;
     const y = slot.y + (slot.h - rows * size) / 2;
     drawShapeMatrix(shape, x, y, size, alpha);
@@ -509,7 +592,7 @@
   }
 
   function drawScoreboardScreen() {
-    const { width, height, navbarH } = state.layout;
+    const { width, height, navbarH, isMobile } = state.layout;
     const contentH = height - navbarH;
     const panelW = Math.min(width - 20, 520);
     const panelH = Math.min(contentH - 20, 460);
@@ -524,7 +607,7 @@
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#bfdbfe";
-    ctx.font = "bold 20px Arial";
+    ctx.font = isMobile ? "bold 17px Arial" : "bold 20px Arial";
     ctx.fillText("SCOREBOARD", left, y);
 
     ctx.textAlign = "right";
@@ -539,9 +622,9 @@
     ctx.stroke();
 
     const rows = state.leaderboard.slice(0, 8);
-    const rowGap = 36;
+    const rowGap = isMobile ? 30 : 36;
     y += 24;
-    ctx.font = "bold 20px Arial";
+    ctx.font = isMobile ? "bold 17px Arial" : "bold 20px Arial";
     rows.forEach((entry, i) => {
       const rank = `${i + 1}.`;
       ctx.textAlign = "left";
@@ -572,13 +655,44 @@
 
   function boardPosFromPointer(shape, px, py) {
     const { boardX, boardY, cell } = state.layout;
-    const rows = shape.matrix.length;
-    const cols = shape.matrix[0].length;
-    const left = px - (cols * cell) / 2;
-    const top = py - (rows * cell) / 2;
+    const offsetCellX = state.drag?.offsetCellX ?? shape.matrix[0].length / 2;
+    const offsetCellY = state.drag?.offsetCellY ?? shape.matrix.length / 2;
+    const left = px - offsetCellX * cell;
+    const top = py - offsetCellY * cell;
     const col = Math.round((left - boardX) / cell);
     const row = Math.round((top - boardY) / cell);
     return { row, col };
+  }
+
+  function isOverBoard(px, py) {
+    const { boardX, boardY, boardW, boardH } = state.layout;
+    return px >= boardX && px <= boardX + boardW && py >= boardY && py <= boardY + boardH;
+  }
+
+  function dragLiftOffset(shape) {
+    if (!state.layout.isMobile) return 0;
+    return shape.matrix.length * state.layout.cell;
+  }
+
+  function dragVisualPoint(drag = state.drag) {
+    if (!drag) return { x: 0, y: 0 };
+    const liftY = drag.liftY ?? 0;
+    return { x: drag.x, y: drag.y - liftY };
+  }
+
+  function resolveDragOffset(shape, px, py) {
+    const rows = shape.matrix.length;
+    const cols = shape.matrix[0].length;
+    if (!shape.preview) {
+      return { offsetCellX: cols / 2, offsetCellY: rows / 2 };
+    }
+
+    const { x, y, size } = shape.preview;
+    const localX = px - x;
+    const localY = py - y;
+    const offsetCellX = Math.max(0, Math.min(cols, localX / size));
+    const offsetCellY = Math.max(0, Math.min(rows, localY / size));
+    return { offsetCellX, offsetCellY };
   }
 
   function canPlace(shape, row, col) {
@@ -747,11 +861,12 @@
       return;
     }
     if (state.gameOver) {
-      if (pointInRect(p.x, p.y, state.layout.restartBtn)) {
+      const gameOverButtons = getGameOverButtons();
+      if (pointInRect(p.x, p.y, gameOverButtons.restartBtn)) {
         resetGame();
         return;
       }
-      if (pointInRect(p.x, p.y, state.layout.scoreboardBtn)) {
+      if (pointInRect(p.x, p.y, gameOverButtons.scoreboardBtn)) {
         state.currentScreen = "scoreboard";
         return;
       }
@@ -759,7 +874,15 @@
     }
     const shape = pickShapeAt(p.x, p.y);
     if (!shape) return;
-    state.drag = { shape, x: p.x, y: p.y };
+    const offset = resolveDragOffset(shape, p.x, p.y);
+    state.drag = {
+      shape,
+      x: p.x,
+      y: p.y,
+      liftY: dragLiftOffset(shape),
+      offsetCellX: offset.offsetCellX,
+      offsetCellY: offset.offsetCellY,
+    };
   }
 
   function onPointerMove(e) {
@@ -772,9 +895,9 @@
 
   function onPointerUp(e) {
     if (!state.drag) return;
-    const p = pointerFromEvent(e);
     const { shape } = state.drag;
-    const pos = boardPosFromPointer(shape, p.x, p.y);
+    const visual = dragVisualPoint();
+    const pos = boardPosFromPointer(shape, visual.x, visual.y);
     if (canPlace(shape, pos.row, pos.col)) {
       place(shape, pos.row, pos.col);
       state.tray = state.tray.filter((s) => s !== shape);
@@ -787,27 +910,31 @@
 
   function drawDragOverlay() {
     if (!state.drag) return;
-    const { shape, x, y } = state.drag;
-    const { cell, boardX, boardY } = state.layout;
-    const pos = boardPosFromPointer(shape, x, y);
+    const { shape } = state.drag;
+    const visual = dragVisualPoint();
+    const { cell, boardX, boardY, isMobile } = state.layout;
+    const pos = boardPosFromPointer(shape, visual.x, visual.y);
     const valid = canPlace(shape, pos.row, pos.col);
+    const showGridHint = !isMobile || isOverBoard(visual.x, visual.y);
 
-    for (let r = 0; r < shape.matrix.length; r++) {
-      for (let c = 0; c < shape.matrix[r].length; c++) {
-        if (!shape.matrix[r][c]) continue;
-        const bx = boardX + (pos.col + c) * cell;
-        const by = boardY + (pos.row + r) * cell;
-        const inside = pos.row + r >= 0 && pos.row + r < ROWS && pos.col + c >= 0 && pos.col + c < COLS;
-        if (inside) drawBlock(bx, by, cell, valid ? shape.color : "#ef4444", 0.55);
+    if (showGridHint) {
+      for (let r = 0; r < shape.matrix.length; r++) {
+        for (let c = 0; c < shape.matrix[r].length; c++) {
+          if (!shape.matrix[r][c]) continue;
+          const bx = boardX + (pos.col + c) * cell;
+          const by = boardY + (pos.row + r) * cell;
+          const inside = pos.row + r >= 0 && pos.row + r < ROWS && pos.col + c >= 0 && pos.col + c < COLS;
+          if (inside) drawBlock(bx, by, cell, valid ? shape.color : "#ef4444", 0.55);
+        }
       }
     }
 
-    const rows = shape.matrix.length;
-    const cols = shape.matrix[0].length;
     const dragCell = cell;
-    const dx = x - (cols * dragCell) / 2;
-    const dy = y - (rows * dragCell) / 2;
-    drawShapeMatrix(shape, dx, dy, dragCell, 0.9);
+    const offsetCellX = state.drag.offsetCellX ?? shape.matrix[0].length / 2;
+    const offsetCellY = state.drag.offsetCellY ?? shape.matrix.length / 2;
+    const dx = visual.x - offsetCellX * dragCell;
+    const dy = visual.y - offsetCellY * dragCell;
+    drawShapeMatrix(shape, dx, dy, dragCell, isMobile ? 1 : 0.9);
   }
 
   function draw() {
@@ -832,6 +959,7 @@
       ctx.textBaseline = "middle";
       ctx.font = "bold 34px Arial";
       ctx.fillText("No moves left", width / 2, height / 2 - 20);
+      drawGameOverButtons();
     }
   }
 
