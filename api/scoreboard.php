@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+const TOP_SCORES = 10;
+
 header("Content-Type: application/json; charset=utf-8");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type");
@@ -72,7 +74,7 @@ function read_payload(): array
     return is_array($decoded) ? $decoded : [];
 }
 
-function get_leaderboard(PDO $pdo, int $limit = 8): array
+function get_leaderboard(PDO $pdo, int $limit = TOP_SCORES): array
 {
     $stmt = $pdo->prepare(
         "SELECT name, score
@@ -102,16 +104,65 @@ function get_best_score(PDO $pdo): int
     return max(0, (int)$result["best_score"]);
 }
 
+function get_lowest_top_score(PDO $pdo): ?int
+{
+    $leaderboard = get_leaderboard($pdo, TOP_SCORES);
+    if (count($leaderboard) < TOP_SCORES) {
+        return null;
+    }
+    return $leaderboard[TOP_SCORES - 1]["score"];
+}
+
+function qualifies_for_leaderboard(PDO $pdo, int $score): bool
+{
+    if ($score <= 0) {
+        return false;
+    }
+    $lowestTopScore = get_lowest_top_score($pdo);
+    if ($lowestTopScore === null) {
+        return true;
+    }
+    return $score > $lowestTopScore;
+}
+
+function trim_leaderboard(PDO $pdo): void
+{
+    $pdo->exec(
+        "DELETE FROM scores
+         WHERE id IN (
+           SELECT id FROM scores
+           ORDER BY score DESC, id ASC
+           LIMIT -1 OFFSET " . TOP_SCORES . "
+         )"
+    );
+}
+
+function submit_score(PDO $pdo, string $name, int $score): bool
+{
+    if (!qualifies_for_leaderboard($pdo, $score)) {
+        return false;
+    }
+
+    $stmt = $pdo->prepare("INSERT INTO scores(name, score) VALUES(:name, :score)");
+    $stmt->bindValue(":name", $name, PDO::PARAM_STR);
+    $stmt->bindValue(":score", $score, PDO::PARAM_INT);
+    $stmt->execute();
+    trim_leaderboard($pdo);
+
+    return true;
+}
+
 try {
     migrate_legacy_db_if_needed();
     $pdo = db_connect();
     init_schema($pdo);
+    trim_leaderboard($pdo);
 
     $method = $_SERVER["REQUEST_METHOD"] ?? "GET";
 
     if ($method === "GET") {
         respond([
-            "leaderboard" => get_leaderboard($pdo, 8),
+            "leaderboard" => get_leaderboard($pdo, TOP_SCORES),
             "bestScore" => get_best_score($pdo),
         ]);
     }
@@ -120,17 +171,14 @@ try {
         $payload = read_payload();
         $name = normalize_name((string)($payload["name"] ?? "AAA"));
         $score = max(0, (int)($payload["score"] ?? 0));
-
-        $stmt = $pdo->prepare("INSERT INTO scores(name, score) VALUES(:name, :score)");
-        $stmt->bindValue(":name", $name, PDO::PARAM_STR);
-        $stmt->bindValue(":score", $score, PDO::PARAM_INT);
-        $stmt->execute();
+        $accepted = submit_score($pdo, $name, $score);
 
         respond([
             "ok" => true,
-            "leaderboard" => get_leaderboard($pdo, 8),
+            "accepted" => $accepted,
+            "leaderboard" => get_leaderboard($pdo, TOP_SCORES),
             "bestScore" => get_best_score($pdo),
-        ], 201);
+        ], $accepted ? 201 : 200);
     }
 
     respond(["error" => "Method not allowed"], 405);

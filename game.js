@@ -16,7 +16,10 @@
   const CELL_SIZE = 50;
   const MOBILE_BREAKPOINT = 820;
   const DESKTOP_BREAKPOINT = 1024;
+  const MOBILE_LIFT_SCALE = 1.2;
+  const MOBILE_DRAG_SPEED = 1.2;
   const SCORE_API_URL = "./api/scoreboard.php";
+  const TOP_SCORES = 10;
   const BONUS_MAP = {
     2: 0.1,
     3: 0.2,
@@ -121,7 +124,7 @@
         score: Math.max(0, Math.floor(entry.score)),
       }))
       .sort((a, b) => b.score - a.score)
-      .slice(0, 8);
+      .slice(0, TOP_SCORES);
   }
 
   async function fetchScoreboardData() {
@@ -134,6 +137,14 @@
     const leaderboard = normalizeLeaderboard(data.leaderboard);
     const bestScore = Math.max(0, Number(data.bestScore) || (leaderboard[0] ? leaderboard[0].score : 0));
     return { leaderboard, bestScore };
+  }
+
+  function qualifiesForLeaderboard(score) {
+    if (score <= 0) return false;
+    const rows = state.leaderboard;
+    if (rows.length < TOP_SCORES) return true;
+    const lowestTop = rows[TOP_SCORES - 1]?.score ?? rows[rows.length - 1]?.score ?? 0;
+    return score > lowestTop;
   }
 
   async function saveScoreToServer(name, score) {
@@ -152,7 +163,7 @@
     const data = await response.json();
     const leaderboard = normalizeLeaderboard(data.leaderboard);
     const bestScore = Math.max(0, Number(data.bestScore) || (leaderboard[0] ? leaderboard[0].score : 0));
-    return { leaderboard, bestScore };
+    return { leaderboard, bestScore, accepted: Boolean(data.accepted) };
   }
 
   function normalizeInitials(input) {
@@ -199,6 +210,7 @@
     bestScore: 0,
     runStartBestScore: 0,
     scoreSubmitted: false,
+    pendingLeaderboardScore: 0,
     tray: [],
     burnFlashes: [],
     burnEmbers: [],
@@ -595,7 +607,7 @@
     const { width, height, navbarH, isMobile } = state.layout;
     const contentH = height - navbarH;
     const panelW = Math.min(width - 20, 520);
-    const panelH = Math.min(contentH - 20, 460);
+    const panelH = Math.min(contentH - 20, isMobile ? 520 : 560);
     const panelX = Math.floor((width - panelW) / 2);
     const panelY = Math.floor(navbarH + (contentH - panelH) / 2);
     drawRoundedRect(panelX, panelY, panelW, panelH, 14, "#111d3b", "#26395f");
@@ -621,8 +633,8 @@
     ctx.lineTo(right, y);
     ctx.stroke();
 
-    const rows = state.leaderboard.slice(0, 8);
-    const rowGap = isMobile ? 30 : 36;
+    const rows = state.leaderboard.slice(0, TOP_SCORES);
+    const rowGap = isMobile ? 26 : 32;
     y += 24;
     ctx.font = isMobile ? "bold 17px Arial" : "bold 20px Arial";
     rows.forEach((entry, i) => {
@@ -671,13 +683,20 @@
 
   function dragLiftOffset(shape) {
     if (!state.layout.isMobile) return 0;
-    return shape.matrix.length * state.layout.cell;
+    return shape.matrix.length * state.layout.cell * MOBILE_LIFT_SCALE;
   }
 
   function dragVisualPoint(drag = state.drag) {
     if (!drag) return { x: 0, y: 0 };
-    const liftY = drag.liftY ?? 0;
-    return { x: drag.x, y: drag.y - liftY };
+    if (!drag.liftY) {
+      return { x: drag.x, y: drag.y };
+    }
+    const deltaX = drag.x - drag.originFingerX;
+    const deltaY = drag.y - drag.originFingerY;
+    return {
+      x: drag.originVisualX + deltaX * MOBILE_DRAG_SPEED,
+      y: drag.originVisualY + deltaY * MOBILE_DRAG_SPEED,
+    };
   }
 
   function resolveDragOffset(shape, px, py) {
@@ -766,24 +785,26 @@
       const data = await saveScoreToServer(name, score);
       state.leaderboard = data.leaderboard;
       state.bestScore = data.bestScore;
+      return data.accepted;
     } catch (error) {
       console.error("Failed to save score to server:", error);
+      return null;
     }
   }
 
   function submitScoreIfNeeded() {
-    const isNewHighest = state.score > state.runStartBestScore;
-    if (state.scoreSubmitted || state.score <= 0 || !isNewHighest) return;
-    animateModalScore(state.score);
+    if (state.scoreSubmitted || !qualifiesForLeaderboard(state.score)) return;
+    state.pendingLeaderboardScore = state.score;
+    animateModalScore(state.pendingLeaderboardScore);
     setModalInitials("");
     if (bootstrapModal) {
       bootstrapModal.show();
       initialsInputs[0].focus();
       initialsInputs[0].select();
     } else {
-      addToLeaderboard("AAA", state.score)
-        .finally(() => {
-          state.scoreSubmitted = true;
+      addToLeaderboard("AAA", state.pendingLeaderboardScore)
+        .then((accepted) => {
+          if (accepted !== null) state.scoreSubmitted = true;
         });
     }
   }
@@ -844,6 +865,7 @@
     state.gameOver = false;
     state.runStartBestScore = state.bestScore;
     state.scoreSubmitted = false;
+    state.pendingLeaderboardScore = 0;
     state.tray = [];
     state.drag = null;
     state.burnFlashes = [];
@@ -875,11 +897,16 @@
     const shape = pickShapeAt(p.x, p.y);
     if (!shape) return;
     const offset = resolveDragOffset(shape, p.x, p.y);
+    const liftY = dragLiftOffset(shape);
     state.drag = {
       shape,
       x: p.x,
       y: p.y,
-      liftY: dragLiftOffset(shape),
+      liftY,
+      originFingerX: p.x,
+      originFingerY: p.y,
+      originVisualX: p.x,
+      originVisualY: p.y - liftY,
       offsetCellX: offset.offsetCellX,
       offsetCellY: offset.offsetCellY,
     };
@@ -1019,14 +1046,14 @@
     });
 
     if (newScoreFormEl) {
-      newScoreFormEl.addEventListener("submit", (e) => {
+      newScoreFormEl.addEventListener("submit", async (e) => {
         e.preventDefault();
         const initials = getModalInitials();
-        addToLeaderboard(initials, state.score)
-          .finally(() => {
-            state.scoreSubmitted = true;
-            if (bootstrapModal) bootstrapModal.hide();
-          });
+        const score = state.pendingLeaderboardScore || state.score;
+        const accepted = await addToLeaderboard(initials, score);
+        if (accepted === null) return;
+        state.scoreSubmitted = true;
+        if (bootstrapModal) bootstrapModal.hide();
       });
     }
 
